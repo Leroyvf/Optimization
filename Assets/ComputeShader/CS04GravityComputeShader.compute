@@ -1,0 +1,24 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct Ball {
+    uint ID;
+    float3 position;
+    float3 velocity;
+};
+
+RWStructuredBuffer<Ball> ballBuffer;
+
+float3 Gravity;
+float deltaTime;
+
+[numthreads(32,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    Ball b = ballBuffer[id.x];
+
+    b.velocity += Gravity * deltaTime; // m/s += m/s^2 * s = m/s
+    b.position += b.velocity * deltaTime; // m += m/s * s = m
+
+    ballBuffer[id.x] = b;
+}

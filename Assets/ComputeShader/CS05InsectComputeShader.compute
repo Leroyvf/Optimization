@@ -1,0 +1,144 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct Insect {
+    float3 position;
+    float3 direction;
+    float ID;
+};
+
+int numBoids;
+float4 Parameters1;
+float4 Parameters2;
+float4 Parameters3;
+float3 center;
+
+RWStructuredBuffer<Insect> InsectBuffer;
+ConsumeStructuredBuffer<uint> InIndexBuffer;
+AppendStructuredBuffer<Insect> OutInsectBuffer;
+
+#define REPEL_WEIGHT            (Parameters1.x)
+#define ALIGN_WEIGHT            (Parameters1.y)
+#define COHESION_WEIGHT         (Parameters1.z)
+#define MAX_SPEED               (Parameters1.w)
+
+#define REPEL_DISTANCE          (Parameters2.x)
+#define ALIGN_DISTANCE          (Parameters2.y)
+#define COHESION_DISTANCE       (Parameters2.z)
+#define MAX_FORCE               (Parameters2.w)
+
+#define INWEIGHT                (Parameters3.x)     
+#define DELTATIME               (Parameters3.y)
+#define BOUND                   (Parameters3.z)
+#define CENTER_WEIGHT           (Parameters3.w)
+
+float3 LimitVec(float3 v, float l) {
+    float aL = length(v);
+    if (aL > l) 
+    {
+        v = v * l / aL;
+    }
+
+    return v;
+}
+
+
+[numthreads(32,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint bid = InIndexBuffer.Consume();
+    Insect b = InsectBuffer[bid];
+
+    float4 sepSum = float4 (0, 0, 0, 0);   //separation sum/inflence
+    float4 alignSum = float4 (0, 0, 0, 0); //alignment
+    float4 coSum = float4 (0, 0, 0, 0);    //cohesion
+
+    for (int i = numBoids; i >= 0; i--)
+    {
+        if ((int)bid == i)
+        {
+            continue;
+        }
+
+        //distance
+        float3 lDiff = b.position - InsectBuffer[i].position;
+        float d = length(lDiff);
+
+        //optional
+        if (d == 0) 
+        {
+            d = 0.000001f;
+            lDiff = center - b.position;
+        }
+
+        lDiff = lDiff / d;
+
+
+        //repel or separation
+        if (d < REPEL_DISTANCE)
+        {
+            sepSum.xyz += (lDiff * REPEL_DISTANCE / (d * d)); //the closer the stronger the influence, exponentionally
+            sepSum.w += 1.0f;                                   //counts the influences
+        }
+
+
+        //alignment
+        if (d < ALIGN_DISTANCE) 
+        {
+            alignSum.xyz += InsectBuffer[i].direction;      //add forward vector from all close insects
+            alignSum.w += 1.0f;
+        }
+
+        //cohesion
+        if (d < COHESION_DISTANCE)
+        {
+            coSum.xyz += InsectBuffer[i].position;      //add position of each close insect to get center (Schwerpunkt)
+            coSum.w += 1.0f;
+        }
+
+    }
+
+    if (sepSum.w > 0.0f)
+    {
+        sepSum.xyz = (sepSum.xyz / length(sepSum.xyz) * MAX_SPEED) - b.direction; //desired steering Force
+        sepSum.xyz = LimitVec(sepSum.xyz, MAX_FORCE); //limit steering Force
+    }
+
+    if (alignSum.w > 0.0f)
+    {
+        alignSum.xyz = (alignSum.xyz / length(alignSum.xyz) * MAX_SPEED) - b.direction;
+        alignSum.xyz = LimitVec(alignSum.xyz, MAX_FORCE);
+    }
+
+    if (coSum.w > 0.0f)
+    {
+        coSum.xyz = (coSum.xyz / length(alignSum.xyz) * MAX_SPEED) - b.direction;
+        coSum.xyz = LimitVec(alignSum.xyz, MAX_FORCE);
+    }
+
+    //Home
+    float3 centerDrive = center - b.position;
+    float centerDiff = length(centerDrive);
+    centerDrive = (centerDrive / centerDiff * MAX_SPEED) - b.direction;
+    centerDrive = LimitVec(centerDrive, MAX_FORCE);
+
+    //RESULTING FORce
+    float3 resForce = sepSum.xyz * REPEL_WEIGHT
+        + alignSum.xyz * ALIGN_WEIGHT
+        + coSum.xyz * COHESION_WEIGHT
+        + centerDrive * CENTER_WEIGHT * centerDiff;
+
+    resForce = LimitVec(resForce, MAX_FORCE);
+
+    //Update velocity & position
+    b.direction += resForce * DELTATIME * INWEIGHT; //resForce * INWEIGHT = accelleration
+    b.direction = LimitVec(b.direction, MAX_SPEED);
+    b.position += b.direction * DELTATIME;
+
+    //just to make sure we are still on a plane (2D)
+    b.position.y = 0;
+    b.direction.y = 0;
+
+    //OUTPUT
+    OutInsectBuffer.Append(b);
+}

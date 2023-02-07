@@ -1,0 +1,27 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+#pragma kernel CSMain2
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+RWStructuredBuffer<float3> buffer;
+
+// (8,8,1) means 64 threads, 8 thread in x and y direction 1 thread in z direction
+[numthreads(8,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    buffer[id.x] = float3 (id.x, 0, 0); // buffer(0), buffer(1), buffer(2) ...
+    
+}
+
+
+[numthreads(8, 1, 1)]
+void CSMain2(uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    //id.x = what thread in the x dimension it is
+    //id.y = what thread in the y dimension it is
+    //id.xy from 00 to 07 then 10 to 17 ... up to 77  (plus a constant)
+    Result[id.xy] = float4(id.x & id.y, (id.x & 15) / 15.0, (id.y & 15) / 15.0, 0.0);
+}
